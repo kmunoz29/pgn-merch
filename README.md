@@ -33,4 +33,6 @@ Live and in use by the chapter. Ongoing work is focused on routing all merchandi
 
 ## Authors
 
-Built by the Phi Gamma Nu Merchandise Chairs at JMU.
+Built by:
+Abrar Ahmed & Kennedy Munoz,
+The Merchandise Chairs of Phi Gamma Nu at James Madison University.

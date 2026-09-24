@@ -81,6 +81,140 @@
 @media (max-width: 520px) {
   .idea-link { padding: .5rem .85rem; font-size: .68rem; }
 }
+
+/* click a photo to open it full screen */
+.card-media { overflow: hidden; }
+.card-media.is-openable { cursor: zoom-in; }
+
+.lbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4vmin;
+  background: rgba(16, 12, 11, .92);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  animation: lbIn .18s ease;
+}
+.lbox[hidden] { display: none; }
+@keyframes lbIn { from { opacity: 0 } to { opacity: 1 } }
+body.lb-open { overflow: hidden; }
+
+.lb-stage { margin: 0; display: grid; place-items: center; max-width: 100%; }
+.lb-img {
+  max-width: min(88vw, 1100px);
+  max-height: 82vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .8);
+}
+
+.lb-close, .lb-nav {
+  border: 0;
+  background: rgba(255, 255, 255, .09);
+  color: #fff;
+  cursor: pointer;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  transition: background-color .18s ease, transform .18s ease;
+}
+.lb-close:hover, .lb-nav:hover { background: rgba(255, 255, 255, .2); }
+.lb-close {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  width: 40px; height: 40px;
+  font-size: 26px; line-height: 1;
+}
+.lb-nav { width: 46px; height: 46px; font-size: 30px; line-height: 1; flex: 0 0 auto; }
+.lb-nav[hidden] { display: none; }
+
+.lb-bar {
+  position: absolute;
+  left: 0; right: 0; bottom: 22px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 14px;
+  padding: 0 16px;
+  color: #f3ece2;
+  text-align: center;
+  pointer-events: none;
+}
+.lb-name  { font-family: "Fraunces", Georgia, serif; font-size: 1.15rem; }
+.lb-price { color: var(--gold); font-weight: 600; }
+.lb-count { font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; opacity: .65; }
+
+@media (max-width: 620px) {
+  .lb-nav { width: 38px; height: 38px; font-size: 24px; }
+  .lb-img { max-width: 92vw; max-height: 72vh; }
+  .lb-bar { bottom: 14px; flex-wrap: wrap; gap: 6px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lbox { animation: none; }
+  .lb-close, .lb-nav { transition: none; }
+}
+
+/* not orderable yet */
+.add.coming {
+  opacity: .62;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* order lookup in the FAQ */
+.lookup { display: flex; gap: 8px; margin: 12px 0 4px; flex-wrap: wrap; }
+.lk-all {
+  margin: 2px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: .84rem;
+  color: var(--cardinal);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  opacity: .85;
+}
+.lk-all:hover { opacity: 1; }
+.lookup input {
+  flex: 1 1 190px;
+  min-width: 0;
+  padding: .55rem .75rem;
+  font: inherit;
+  border: 1px solid rgba(0, 0, 0, .25);
+  border-radius: 6px;
+  background: #fff;
+}
+.lookup button { flex: 0 0 auto; }
+.faq-note { font-size: .82rem; opacity: .72; margin-top: 10px; }
+
+.lk-msg { font-size: .88rem; margin: 10px 0 0; opacity: .8; }
+.lk-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 0, 0, .16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .55);
+}
+.lk-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, .12);
+  font-size: .9rem;
+}
+.lk-head span { opacity: .65; }
+.lk-row { display: flex; justify-content: space-between; gap: 12px; font-size: .9rem; padding: 3px 0; }
+.lk-total { margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(0, 0, 0, .12); font-weight: 600; }
 </style>
 {{ANALYTICS}}
 </head>
@@ -142,6 +276,21 @@
       <details class="faq-item">
         <summary>How do I pay?</summary>
         <p>Two ways: Cheddar Up or cash. When you place your order, the confirmation screen gives you a Cheddar Up link — pay there and put your Order # in the payment note so we can match it up. If you'd rather pay cash, hand it to any exec at chapter and mention your Order #. Either way we'll text you to confirm.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Where's my order? / I lost my confirmation number</summary>
+        <p>Enter the email address you ordered with and we'll send your confirmation number and order summary straight to your inbox.</p>
+        <form class="lookup" id="resendForm">
+          <input id="resendEmail" type="email" placeholder="you@email.com" aria-label="Your email address" autocomplete="email">
+          <button type="submit" class="btn btn-gold" id="resendBtn">Email it to me</button>
+        </form>
+        <button type="button" class="lk-all" id="lookupAll">Or show orders placed on this device</button>
+        <div id="lookupResult"></div>
+        <p class="faq-note">Didn't give an email when you ordered? Text us and we'll look it up in our records.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Will my order list still be there if I close the page?</summary>
+        <p>Yes. Items you've added stay in your order list on that device, so you can come back later and finish. Once you actually place the order the list clears itself. Note this is per-device — a list started on your phone won't show up on your laptop.</p>
       </details>
       <details class="faq-item">
         <summary>How do I get my order?</summary>

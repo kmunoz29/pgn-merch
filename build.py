@@ -119,9 +119,13 @@ def render_card(p):
     link = p.get("link")
     link_label = p.get("link_label", "Order online")
 
+    # Coming Soon: show the card, but no sizes and no way to order it yet.
+    # Set "coming_soon": True, or just give it the "Coming Soon" badge.
+    soon = bool(p.get("coming_soon")) or p.get("badge") == "Coming Soon"
+
     stock = p.get("stock") or {}
-    # products that link out don't show size pickers or stock
-    if p.get("sizes") and not link:
+    # products that link out, or aren't orderable yet, don't show size pickers
+    if p.get("sizes") and not link and not soon:
         btns = ""
         for s in p["sizes"]:
             q = stock.get(s)
@@ -138,6 +142,8 @@ def render_card(p):
     if link:
         add = (f'<a class="add add-link" href="{esc(link)}" target="_blank" '
                f'rel="noopener">{esc(link_label)} ↗</a>')
+    elif soon:
+        add = '<button class="add coming" disabled>Coming soon</button>'
     elif p.get("soldout"):
         add = '<button class="add soldout" disabled>Sold out</button>'
     else:
@@ -236,8 +242,15 @@ def build():
     DIST.mkdir(exist_ok=True)
     target = DIST / "index.html"
     target.write_text(out, encoding="utf-8")
+
+    # GitHub Pages serves the copy in the repo root, so write it there too.
+    # Saves having to remember `copy dist\index.html index.html` every time.
+    root_copy = ROOT / "index.html"
+    root_copy.write_text(out, encoding="utf-8")
+
     kb = len(out.encode()) / 1024
     print(f"✓ Built {target}  ({kb:.0f} KB, {len(P.PRODUCTS)} products)")
+    print(f"  also wrote {root_copy}  (this is what GitHub Pages serves)")
     if not P.ORDER_ENDPOINT:
         print("  note: ORDER_ENDPOINT is empty — checkout shows a thank-you but")
         print("        orders aren't saved yet. See order-sheet/SETUP.md.")

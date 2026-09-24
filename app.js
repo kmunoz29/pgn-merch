@@ -4,6 +4,24 @@
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   let order = [];
 
+  /* ---- local storage: cart survives a refresh, orders are kept for lookup ---- */
+  const CART_KEY = "pgn_cart_v1";
+  const HIST_KEY = "pgn_orders_v1";
+
+  function store(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* private mode */ }
+  }
+  function recall(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) { return fallback; }
+  }
+
+  // restore an in-progress cart
+  const saved = recall(CART_KEY, []);
+  if (Array.isArray(saved)) order = saved;
+
   /* ---- wire the email button ---- */
   const ideaBtn = $("#ideaBtn");
   if (ideaBtn && CONFIG.ideaUrl) ideaBtn.href = CONFIG.ideaUrl;
@@ -127,6 +145,7 @@
         b.onclick = () => { order.splice(Number(b.dataset.rm), 1); renderOrder(); });
     }
     $("#drawerTotal").textContent = orderTotal().label;
+    store(CART_KEY, order);
     const place = $("#placeBtn");
     if (place) place.disabled = order.length === 0;
   }
@@ -216,6 +235,18 @@
   });
 
   function showConfirmation(orderId, payload) {
+    // keep a copy on this device so the buyer can look it up later
+    const hist = recall(HIST_KEY, []);
+    hist.unshift({
+      orderId: orderId,
+      when: new Date().toISOString(),
+      name: payload.name,
+      phone: payload.phone,
+      items: payload.items,
+      totalLabel: payload.totalLabel
+    });
+    store(HIST_KEY, hist.slice(0, 25));   // keep the last 25
+
     $("#orderView").hidden = true;
     $("#drawerTitle").textContent = "Order confirmed";
     $("#confirmId").textContent = orderId;
@@ -367,6 +398,149 @@
       window.open(url, "_blank", "noopener");
     });
   });
+
+  /* ---- lightbox: click a photo to open it full screen ---- */
+  (function () {
+    // one overlay, reused by every card
+    const ov = document.createElement("div");
+    ov.className = "lbox";
+    ov.setAttribute("hidden", "");
+    ov.innerHTML =
+      '<button class="lb-close" aria-label="Close">&times;</button>' +
+      '<button class="lb-nav lb-prev" aria-label="Previous">&#8249;</button>' +
+      '<figure class="lb-stage"><img class="lb-img" alt=""></figure>' +
+      '<button class="lb-nav lb-next" aria-label="Next">&#8250;</button>' +
+      '<div class="lb-bar"><span class="lb-name"></span>' +
+      '<span class="lb-price"></span><span class="lb-count"></span></div>';
+    document.body.appendChild(ov);
+
+    const lbImg   = $(".lb-img", ov);
+    const lbName  = $(".lb-name", ov);
+    const lbPrice = $(".lb-price", ov);
+    const lbCount = $(".lb-count", ov);
+    const prevBtn = $(".lb-prev", ov);
+    const nextBtn = $(".lb-next", ov);
+
+    let shots = [];   // [{src, label}]
+    let at = 0;
+
+    function paint() {
+      const s = shots[at];
+      if (!s) return;
+      lbImg.src = s.src;
+      lbImg.alt = lbName.textContent + (s.label ? " \u2014 " + s.label : "");
+      lbCount.textContent = shots.length > 1
+        ? (s.label ? s.label + " \u00b7 " : "") + (at + 1) + " / " + shots.length
+        : (s.label || "");
+      const many = shots.length > 1;
+      prevBtn.hidden = !many;
+      nextBtn.hidden = !many;
+    }
+
+    function go(n) { at = (n + shots.length) % shots.length; paint(); }
+
+    function open(card, startAt) {
+      const imgs = card.querySelectorAll(".card-media img");
+      if (!imgs.length) return;
+      shots = Array.prototype.map.call(imgs, function (im) {
+        const slide = im.closest("[data-label]");
+        return { src: im.src, label: slide ? slide.dataset.label : (im.dataset.label || "") };
+      });
+      at = Math.min(startAt || 0, shots.length - 1);
+      lbName.textContent = card.dataset.name || "";
+      lbPrice.textContent = card.dataset.priceLabel || "";
+      paint();
+      ov.removeAttribute("hidden");
+      document.body.classList.add("lb-open");
+      $(".lb-close", ov).focus();
+    }
+
+    function close() {
+      ov.setAttribute("hidden", "");
+      document.body.classList.remove("lb-open");
+      lbImg.removeAttribute("src");
+    }
+
+    $$(".card").forEach(function (card) {
+      if (card.querySelector(".add-link")) return;   // link-out cards open their link instead
+      const media = $(".card-media", card);
+      if (!media || !media.querySelector("img")) return;   // placeholders have no photo
+      media.classList.add("is-openable");
+      media.addEventListener("click", function (e) {
+        // let the carousel arrows and dots do their own job
+        if (e.target.closest(".car-nav") || e.target.closest(".dot")) return;
+        const slides = Array.prototype.slice.call(card.querySelectorAll(".card-media img"));
+        const clicked = e.target.tagName === "IMG" ? slides.indexOf(e.target) : 0;
+        open(card, clicked < 0 ? 0 : clicked);
+      });
+    });
+
+    $(".lb-close", ov).onclick = close;
+    prevBtn.onclick = function (e) { e.stopPropagation(); go(at - 1); };
+    nextBtn.onclick = function (e) { e.stopPropagation(); go(at + 1); };
+    ov.addEventListener("click", function (e) { if (e.target === ov) close(); });
+    document.addEventListener("keydown", function (e) {
+      if (ov.hasAttribute("hidden")) return;
+      if (e.key === "Escape") close();
+      else if (e.key === "ArrowLeft" && shots.length > 1) go(at - 1);
+      else if (e.key === "ArrowRight" && shots.length > 1) go(at + 1);
+    });
+  })();
+
+  /* ---- "email me my order" + local device history ---- */
+  (function () {
+    const out = $("#lookupResult");
+    if (!out) return;
+
+    function msg(text) { out.innerHTML = '<p class="lk-msg">' + text + '</p>'; }
+
+    // --- ask the server to email the order to the address on file ---
+    const rForm = $("#resendForm");
+    if (rForm) {
+      const rInput = $("#resendEmail");
+      const rBtn = $("#resendBtn");
+      rForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        const email = rInput.value.trim();
+        if (!email || email.indexOf("@") < 1) { msg("Enter the email address you ordered with."); return; }
+        if (!CONFIG.orderEndpoint) { msg("Email lookup isn't set up yet \u2014 please text us instead."); return; }
+
+        submitOrder({ action: "resend", token: CONFIG.token, email: email });
+
+        // Deliberately the same message either way, so this can't be used to
+        // check whether someone has ordered.
+        msg("If there's an order under that address, we've just emailed it over. " +
+            "Give it a minute, and check your spam folder.");
+        rBtn.disabled = true;
+        rBtn.textContent = "Sent";
+        setTimeout(function () { rBtn.disabled = false; rBtn.textContent = "Email it to me"; }, 30000);
+      });
+    }
+
+    // --- instant, no email needed, if they're on the device they ordered from ---
+    const allBtn = $("#lookupAll");
+    if (allBtn) {
+      allBtn.addEventListener("click", function () {
+        const hist = recall(HIST_KEY, []);
+        if (!hist.length) { msg("No orders were placed on this device."); return; }
+        out.innerHTML = (hist.length > 1
+          ? '<p class="lk-msg">' + hist.length + ' orders found on this device:</p>' : "")
+          + hist.map(function (o) {
+            const when = new Date(o.when).toLocaleDateString(undefined,
+              { month: "short", day: "numeric", year: "numeric" });
+            return '<div class="lk-card">' +
+              '<div class="lk-head"><strong>' + o.orderId + '</strong><span>' + when + '</span></div>' +
+              (o.items || []).map(function (i) {
+                return '<div class="lk-row"><span>' + i.name +
+                       (i.size && i.size !== "\u2014" ? " \u00b7 " + i.size : "") +
+                       '</span><span>' + i.priceLabel + '</span></div>';
+              }).join("") +
+              '<div class="lk-row lk-total"><span>Total</span><span>' + o.totalLabel + '</span></div>' +
+              '</div>';
+          }).join("");
+      });
+    }
+  })();
 
   renderOrder();
 })();
